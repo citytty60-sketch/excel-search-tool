@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 from PySide6.QtCore import Qt, QPoint, QTimer, Signal, QSettings
-from PySide6.QtGui import QFont, QMouseEvent, QIcon, QColor, QPalette, QPainter
+from PySide6.QtGui import QFont, QMouseEvent, QIcon, QColor, QPalette
 
 # ============================================================
 # 全局配色
@@ -403,88 +403,6 @@ def success_button(text, height=36):
     return btn
 
 # ============================================================
-# 联系作者 / 支持作者 模态遮罩层 (Modal Overlay)
-# ============================================================
-class ContactOverlay(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.parent = parent
-        self.setVisible(False)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        
-        main_layout = QVBoxLayout(self)
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        card = QFrame()
-        card.setFixedSize(480, 380)
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: #FFFFFF;
-                border: 1px solid {BORDER};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-        
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(24, 20, 24, 20)
-        card_layout.setSpacing(12)
-        
-        header_layout = QHBoxLayout()
-        title = QLabel("支持作者 / 联系作者")
-        title.setStyleSheet(f"font-size: 15px; font-weight: bold; color: {TEXT};")
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent; color: #888; border: none; font-size: 16px; font-weight: bold;
-            }
-            QPushButton:hover { color: #E81123; }
-        """)
-        close_btn.clicked.connect(self.hide)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(close_btn)
-        card_layout.addLayout(header_layout)
-        
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {BORDER}; max-height: 1px; border: none;")
-        card_layout.addWidget(sep)
-        
-        desc = QLabel("感谢使用！如果您觉得这个工具对您有帮助，可以扫描下方二维码联系作者（沈宇）或进行打赏支持：")
-        desc.setWordWrap(True)
-        desc.setStyleSheet(f"font-size: 12px; color: {TEXT_SEC}; line-height: 1.5;")
-        card_layout.addWidget(desc)
-        
-        img_row = QHBoxLayout()
-        img_row.setSpacing(16)
-        for img_name in ["1.png", "2.png"]:
-            lbl = QLabel()
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            pix = QIcon(resource_path(img_name)).pixmap(180, 220)
-            lbl.setPixmap(pix)
-            img_row.addWidget(lbl)
-        card_layout.addLayout(img_row)
-        
-        main_layout.addWidget(card)
-        
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
-        super().paintEvent(event)
-        
-    def resize_to_parent(self):
-        if self.parent:
-            self.setGeometry(0, 0, self.parent.width(), self.parent.height())
-
-# ============================================================
 # 主窗口
 # ============================================================
 class ExcelSearchApp(QWidget):
@@ -506,8 +424,6 @@ class ExcelSearchApp(QWidget):
         self._setup_ui()
         self.load_settings()
         
-        # 初始化联系作者遮罩层
-        self.contact_overlay = ContactOverlay(self)
         
         self.search_progress_sig.connect(self._on_progress)
         self.search_finished_sig.connect(self._on_finished)
@@ -577,13 +493,10 @@ class ExcelSearchApp(QWidget):
         self.export_btn = success_button("📥  导出汇总表格", height=40)
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(self.export_results)
-        contact_btn = secondary_button("💬  联系作者 / 打赏", height=40)
-        contact_btn.clicked.connect(self.show_contact)
         
         btn_row.addWidget(self.search_btn)
         btn_row.addWidget(self.export_btn)
         btn_row.addStretch()
-        btn_row.addWidget(contact_btn)
         body_layout.addLayout(btn_row)
 
         # 进度
@@ -898,15 +811,7 @@ class ExcelSearchApp(QWidget):
             wb.save(path)
             QMessageBox.information(self, "成功", "导出完成")
 
-    def show_contact(self):
-        self.contact_overlay.resize_to_parent()
-        self.contact_overlay.show()
-        self.contact_overlay.raise_()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, "contact_overlay"):
-            self.contact_overlay.resize_to_parent()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
