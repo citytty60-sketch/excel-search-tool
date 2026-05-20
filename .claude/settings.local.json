@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip list *)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import customtkinter as ctk; print\\('CustomTkinter version:', ctk.__version__\\); from excel_searcher import ExcelSearchApp; print\\('Import successful'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(C:/msys64/ucrt64/bin/python.exe -m pip install customtkinter)",
+      "Bash(which python *)",
+      "Read(//c/msys64/ucrt64/bin/**)",
+      "Bash(E:/Anaconda/python.exe -c \"import customtkinter; print\\('OK, version:', customtkinter.__version__\\)\")",
+      "Bash(python -c \"from excel_searcher import ExcelSearchApp; import tkinter as tk; root = tk.Tk\\(\\); app = ExcelSearchApp\\(root\\); print\\('OK'\\); print\\('folder_path:', hasattr\\(app, 'folder_path'\\)\\); print\\('keyword:', hasattr\\(app, 'keyword'\\)\\); print\\('result_list:', hasattr\\(app, 'result_list'\\)\\); print\\('search_btn:', hasattr\\(app, 'search_btn'\\)\\); print\\('status_label:', hasattr\\(app, 'status_label'\\)\\)\")",
+      "Bash(python -c \"from main import ExcelSearchApp, search_xlsx_professional, SplashScreen, ToolTip; print\\('All imports OK'\\); print\\('Methods:', 'browse' in dir\\(ExcelSearchApp\\), 'start_search' in dir\\(ExcelSearchApp\\), 'render_results' in dir\\(ExcelSearchApp\\), 'export_results' in dir\\(ExcelSearchApp\\), 'show_contact' in dir\\(ExcelSearchApp\\), 'open_file' in dir\\(ExcelSearchApp\\)\\)\")",
+      "Bash(python -c \"from PyQt6.QtWidgets import QApplication; print\\('PyQt6 OK'\\)\")",
+      "Bash(python -c \"from PySide6.QtWidgets import QApplication; print\\('PySide6 OK'\\)\")",
+      "Bash(timeout 8 python main.py)",
+      "Bash(timeout 10 python main.py)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(cat /tmp/output.log)",
+      "Bash(QT_QPA_PLATFORM=offscreen timeout 6 python main.py)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(QT_QPA_PLATFORM=offscreen python -c ' *)"
+    ]
+  }
+}
