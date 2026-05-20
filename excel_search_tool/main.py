@@ -17,28 +17,26 @@ from PySide6.QtCore import Qt, QPoint, QTimer, Signal, QSettings
 from PySide6.QtGui import QFont, QMouseEvent, QIcon, QColor, QPalette, QPainter
 
 # ============================================================
-# BMW Design System — Color Tokens
-# https://getdesign.md/bmw/design-md
+# Stripe Design System — Color Tokens
+# https://getdesign.md/stripe/design-md
 # ============================================================
-BMW_BLUE         = "#1c69d4"
-BMW_BLUE_ACTIVE  = "#0653b6"
-BMW_INK          = "#262626"
-BMW_BODY         = "#3c3c3c"
-BMW_MUTED        = "#6b6b6b"
-BMW_MUTED_SOFT   = "#9a9a9a"
-BMW_HAIRLINE     = "#e6e6e6"
-BMW_HAIRLINE_STR = "#cccccc"
-BMW_CANVAS       = "#ffffff"
-BMW_SURFACE_SOFT = "#f7f7f7"
-BMW_SURFACE_CARD = "#fafafa"
-BMW_SURFACE_DARK = "#1a2129"
-BMW_ERROR        = "#dc2626"
-BMW_SUCCESS      = "#22c55e"
-BMW_ON_PRIMARY   = "#ffffff"
-BMW_ON_DARK      = "#ffffff"
-BMW_ON_DARK_SOFT = "#bbbbbb"
+STRIPE_PRIMARY        = "#533afd"
+STRIPE_PRIMARY_DEEP   = "#4434d4"
+STRIPE_PRIMARY_PRESS  = "#2e2b8c"
+STRIPE_BRAND_DARK     = "#1c1e54"
+STRIPE_INK            = "#0d253d"
+STRIPE_INK_SECONDARY  = "#273951"
+STRIPE_INK_MUTE       = "#64748d"
+STRIPE_ON_PRIMARY     = "#ffffff"
+STRIPE_CANVAS         = "#ffffff"
+STRIPE_CANVAS_SOFT    = "#f6f9fc"
+STRIPE_HAIRLINE       = "#e3e8ee"
+STRIPE_HAIRLINE_INPUT = "#a8c3de"
+STRIPE_SHADOW_BLUE    = "#003770"
+STRIPE_ERROR          = "#dc2626"
+STRIPE_SUCCESS        = "#22c55e"
 
-FONT_FAMILY = "'Inter', 'Microsoft YaHei UI', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+FONT_FAMILY = "'Inter', 'SF Pro Display', 'Microsoft YaHei UI', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 # ============================================================
 # 资源路径处理
@@ -245,7 +243,7 @@ def search_xlsx_professional(directory, search_string, progress_callback=None, i
     return results
 
 # ============================================================
-# 启动屏 — BMW Dark Hero
+# 启动屏 — Stripe Dark Hero
 # ============================================================
 class SplashScreen(QWidget):
     finished = Signal()
@@ -254,7 +252,7 @@ class SplashScreen(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setFixedSize(450, 220)
-        self.setStyleSheet(f"background: {BMW_SURFACE_DARK};")
+        self.setStyleSheet(f"background: {STRIPE_BRAND_DARK};")
 
         screen = QApplication.primaryScreen().geometry()
         self.move((screen.width() - 450) // 2, (screen.height() - 220) // 2)
@@ -265,11 +263,11 @@ class SplashScreen(QWidget):
 
         title = QLabel("XLSX 智能搜索助手")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 20px; font-weight: 700; color: {BMW_ON_DARK}; border: none;")
+        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 22px; font-weight: 300; letter-spacing: -0.22px; color: {STRIPE_ON_PRIMARY}; border: none;")
 
         author = QLabel("本软件由软工24-3 沈宇 开发完成")
         author.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        author.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 300; color: {BMW_ON_DARK_SOFT}; border: none;")
+        author.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300; color: rgba(255,255,255,0.6); border: none;")
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -277,8 +275,8 @@ class SplashScreen(QWidget):
         self.progress.setFixedHeight(4)
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet(f"""
-            QProgressBar {{ background: rgba(255,255,255,0.12); border: none; }}
-            QProgressBar::chunk {{ background: {BMW_BLUE}; border: none; }}
+            QProgressBar {{ background: rgba(255,255,255,0.12); border: none; border-radius: 0px; }}
+            QProgressBar::chunk {{ background: {STRIPE_PRIMARY}; border: none; border-radius: 0px; }}
         """)
 
         layout.addStretch()
@@ -303,7 +301,7 @@ class SplashScreen(QWidget):
             self.deleteLater()
 
 # ============================================================
-# 自定义标题栏 — BMW Dark Surface
+# 自定义标题栏 — Stripe Dark Surface
 # ============================================================
 class TitleBar(QFrame):
     def __init__(self, window):
@@ -311,14 +309,14 @@ class TitleBar(QFrame):
         self.window = window
         self._drag_pos = None
         self.setFixedHeight(48)
-        self.setStyleSheet(f"background: {BMW_SURFACE_DARK}; border: none;")
+        self.setStyleSheet(f"background: {STRIPE_BRAND_DARK}; border: none;")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(20, 0, 0, 0)
         layout.setSpacing(0)
 
         title = QLabel("Excel 智能全文检索系统  By 沈宇")
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 700; color: {BMW_ON_DARK}; border: none;")
+        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 400; color: {STRIPE_ON_PRIMARY}; border: none;")
         layout.addWidget(title)
         layout.addStretch()
 
@@ -327,7 +325,7 @@ class TitleBar(QFrame):
             btn.setFixedSize(48, 32)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; color: {BMW_ON_DARK}; border: none; font-size: 14px; }}
+                QPushButton {{ background: transparent; color: {STRIPE_ON_PRIMARY}; border: none; font-size: 14px; }}
                 QPushButton:hover {{ background: {'#e22718' if action == 'close' else 'rgba(255,255,255,0.12)'}; }}
             """)
             if action == "min": btn.clicked.connect(window.showMinimized)
@@ -351,57 +349,57 @@ class TitleBar(QFrame):
         self._drag_pos = None
 
 # ============================================================
-# Button Factories — BMW Rectangular 0px Radius
+# Button Factories — Stripe Pill 9999px Radius
 # ============================================================
-def primary_button(text, height=48):
+def primary_button(text, height=40):
     btn = QPushButton(text)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFixedHeight(height)
     btn.setStyleSheet(f"""
         QPushButton {{
             font-family: {FONT_FAMILY};
-            background: {BMW_BLUE}; color: {BMW_ON_PRIMARY}; border: none;
-            border-radius: 0px; font-size: 14px; font-weight: 700;
-            padding: 0 32px;
-        }}
-        QPushButton:hover {{ background: {BMW_BLUE_ACTIVE}; }}
-        QPushButton:disabled {{ background: {BMW_HAIRLINE_STR}; color: {BMW_MUTED}; }}
-    """)
-    return btn
-
-def secondary_button(text, height=48):
-    btn = QPushButton(text)
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(height)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            font-family: {FONT_FAMILY};
-            background: {BMW_CANVAS}; color: {BMW_INK}; border: 1px solid {BMW_HAIRLINE_STR};
-            border-radius: 0px; font-size: 14px; font-weight: 700;
+            background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
+            border-radius: 9999px; font-size: 16px; font-weight: 400;
             padding: 0 24px;
         }}
-        QPushButton:hover {{ border-color: {BMW_BLUE}; color: {BMW_BLUE}; }}
+        QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
+        QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
     """)
     return btn
 
-def success_button(text, height=48):
+def secondary_button(text, height=40):
     btn = QPushButton(text)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.setFixedHeight(height)
     btn.setStyleSheet(f"""
         QPushButton {{
             font-family: {FONT_FAMILY};
-            background: {BMW_SUCCESS}; color: {BMW_CANVAS}; border: none;
-            border-radius: 0px; font-size: 14px; font-weight: 700;
-            padding: 0 32px;
+            background: {STRIPE_CANVAS}; color: {STRIPE_PRIMARY}; border: 1px solid {STRIPE_PRIMARY};
+            border-radius: 9999px; font-size: 16px; font-weight: 400;
+            padding: 0 24px;
+        }}
+        QPushButton:hover {{ background: #f8f7ff; }}
+    """)
+    return btn
+
+def success_button(text, height=40):
+    btn = QPushButton(text)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setFixedHeight(height)
+    btn.setStyleSheet(f"""
+        QPushButton {{
+            font-family: {FONT_FAMILY};
+            background: {STRIPE_SUCCESS}; color: #ffffff; border: none;
+            border-radius: 9999px; font-size: 16px; font-weight: 400;
+            padding: 0 24px;
         }}
         QPushButton:hover {{ background: #1ea84e; }}
-        QPushButton:disabled {{ background: {BMW_HAIRLINE_STR}; color: {BMW_MUTED}; }}
+        QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
     """)
     return btn
 
 # ============================================================
-# 联系作者 模态遮罩层 — BMW Style
+# 联系作者 模态遮罩层 — Stripe Style
 # ============================================================
 class ContactOverlay(QWidget):
     def __init__(self, parent=None):
@@ -416,11 +414,12 @@ class ContactOverlay(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         card = QFrame()
-        card.setFixedSize(340, 360)
+        card.setFixedSize(340, 380)
         card.setStyleSheet(f"""
             QFrame {{
-                background-color: {BMW_CANVAS};
-                border: 1px solid {BMW_HAIRLINE};
+                background-color: {STRIPE_CANVAS};
+                border: 1px solid {STRIPE_HAIRLINE};
+                border-radius: 12px;
             }}
             QLabel {{
                 border: none;
@@ -429,18 +428,18 @@ class ContactOverlay(QWidget):
         """)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setContentsMargins(32, 24, 32, 32)
         card_layout.setSpacing(16)
 
         header_layout = QHBoxLayout()
         title = QLabel("联系作者")
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 16px; font-weight: 700; color: {BMW_INK};")
+        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 18px; font-weight: 300; letter-spacing: -0.2px; color: {STRIPE_INK};")
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(28, 28)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {BMW_MUTED}; border: none; font-size: 16px; font-weight: 700; }}
-            QPushButton:hover {{ color: {BMW_ERROR}; }}
+            QPushButton {{ background: transparent; color: {STRIPE_INK_MUTE}; border: none; font-size: 16px; font-weight: 400; }}
+            QPushButton:hover {{ color: {STRIPE_ERROR}; }}
         """)
         close_btn.clicked.connect(self.hide)
         header_layout.addWidget(title)
@@ -450,7 +449,7 @@ class ContactOverlay(QWidget):
 
         desc = QLabel("如有问题或建议，欢迎扫码添加作者微信（沈宇）：")
         desc.setWordWrap(True)
-        desc.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300; color: {BMW_BODY}; line-height: 1.55;")
+        desc.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300; color: {STRIPE_INK_SECONDARY}; line-height: 1.4;")
         card_layout.addWidget(desc)
 
         lbl = QLabel()
@@ -464,7 +463,7 @@ class ContactOverlay(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
+        painter.fillRect(self.rect(), QColor(0, 55, 112, 60))
         super().paintEvent(event)
 
     def resize_to_parent(self):
@@ -521,31 +520,37 @@ class ExcelSearchApp(QWidget):
         root_layout.addWidget(self.title_bar)
 
         body = QWidget()
-        body.setStyleSheet(f"background: {BMW_SURFACE_SOFT};")
+        body.setStyleSheet(f"background: {STRIPE_CANVAS_SOFT};")
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(32, 32, 32, 32)
         body_layout.setSpacing(24)
 
-        # ---- 搜索卡片 ----
+        # ---- 搜索卡片 (Stripe card-feature-light) ----
         card1 = QFrame()
-        card1.setStyleSheet(f"background: {BMW_CANVAS}; border: 1px solid {BMW_HAIRLINE};")
+        card1.setStyleSheet(f"""
+            QFrame {{
+                background: {STRIPE_CANVAS};
+                border: 1px solid {STRIPE_HAIRLINE};
+                border-radius: 12px;
+            }}
+        """)
         c1 = QVBoxLayout(card1)
-        c1.setContentsMargins(24, 24, 24, 24)
+        c1.setContentsMargins(32, 24, 32, 24)
         c1.setSpacing(16)
 
         path_row = QHBoxLayout()
         path_row.setSpacing(12)
         path_label = QLabel("搜索路径")
-        path_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 700; color: {BMW_INK}; border: none; background: transparent;")
+        path_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 400; color: {STRIPE_INK}; border: none; background: transparent;")
         path_label.setFixedWidth(64)
         self.dir_path = QLineEdit()
         self.dir_path.setPlaceholderText("选择包含 .xlsx 文件的文件夹...")
-        self.dir_path.setFixedHeight(48)
+        self.dir_path.setFixedHeight(40)
         self.dir_path.setStyleSheet(f"""
-            font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300;
-            color: {BMW_INK}; background: {BMW_CANVAS};
-            border: 1px solid {BMW_HAIRLINE}; border-radius: 0px;
-            padding: 0 16px;
+            font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300;
+            color: {STRIPE_INK}; background: {STRIPE_CANVAS};
+            border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px;
+            padding: 0 12px;
         """)
         browse_btn = secondary_button("浏览")
         path_row.addWidget(path_label)
@@ -556,16 +561,16 @@ class ExcelSearchApp(QWidget):
         kw_row = QHBoxLayout()
         kw_row.setSpacing(12)
         kw_label = QLabel("搜索内容")
-        kw_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 700; color: {BMW_INK}; border: none; background: transparent;")
+        kw_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 400; color: {STRIPE_INK}; border: none; background: transparent;")
         kw_label.setFixedWidth(64)
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("输入关键字，多个关键字用空格或逗号分隔...")
-        self.search_input.setFixedHeight(48)
+        self.search_input.setFixedHeight(40)
         self.search_input.setStyleSheet(f"""
-            font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300;
-            color: {BMW_INK}; background: {BMW_CANVAS};
-            border: 1px solid {BMW_HAIRLINE}; border-radius: 0px;
-            padding: 0 16px;
+            font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300;
+            color: {STRIPE_INK}; background: {STRIPE_CANVAS};
+            border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px;
+            padding: 0 12px;
         """)
         self.search_input.returnPressed.connect(self.start_search)
         kw_row.addWidget(kw_label)
@@ -573,22 +578,22 @@ class ExcelSearchApp(QWidget):
         c1.addLayout(kw_row)
 
         hint = QLabel("专业可能有缩写，建议搜索简写以及完整称呼进行两次搜索以确保准确")
-        hint.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 12px; font-weight: 400; color: {BMW_MUTED}; border: none; background: transparent;")
+        hint.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
         c1.addWidget(hint)
         body_layout.addWidget(card1)
 
         # ---- 按钮栏 ----
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        self.search_btn = primary_button("开始分析搜索", height=48)
+        self.search_btn = primary_button("🔍  开始分析搜索", height=40)
         self.search_btn.clicked.connect(self.start_search)
-        self.export_btn = success_button("导出汇总表格", height=48)
+        self.export_btn = success_button("📥  导出汇总表格", height=40)
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(self.export_results)
 
         btn_row.addWidget(self.search_btn)
         btn_row.addWidget(self.export_btn)
-        contact_btn = secondary_button("联系作者", height=48)
+        contact_btn = secondary_button("💬  联系作者", height=40)
         contact_btn.clicked.connect(self.show_contact)
         btn_row.addWidget(contact_btn)
         btn_row.addStretch()
@@ -604,19 +609,25 @@ class ExcelSearchApp(QWidget):
         self.progress_bar.setFixedHeight(4)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{ background: {BMW_CANVAS}; border: none; }}
-            QProgressBar::chunk {{ background: {BMW_BLUE}; border: none; }}
+            QProgressBar {{ background: {STRIPE_CANVAS}; border: none; border-radius: 0px; }}
+            QProgressBar::chunk {{ background: {STRIPE_PRIMARY}; border: none; border-radius: 0px; }}
         """)
         self.prog_label = QLabel("等待开始...")
-        self.prog_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 12px; font-weight: 400; color: {BMW_MUTED}; border: none; background: transparent;")
+        self.prog_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
         pl.addWidget(self.progress_bar)
         pl.addWidget(self.prog_label)
         self.prog_widget.hide()
         body_layout.addWidget(self.prog_widget)
 
-        # ---- 结果卡片 ----
+        # ---- 结果卡片 (Stripe card-feature-light) ----
         card2 = QFrame()
-        card2.setStyleSheet(f"background: {BMW_CANVAS}; border: 1px solid {BMW_HAIRLINE};")
+        card2.setStyleSheet(f"""
+            QFrame {{
+                background: {STRIPE_CANVAS};
+                border: 1px solid {STRIPE_HAIRLINE};
+                border-radius: 12px;
+            }}
+        """)
         c2 = QVBoxLayout(card2)
         c2.setContentsMargins(1, 1, 1, 1)
         c2.setSpacing(0)
@@ -632,45 +643,45 @@ class ExcelSearchApp(QWidget):
         self.table.setStyleSheet(f"""
             QTableWidget {{
                 font-family: {FONT_FAMILY};
-                background-color: {BMW_CANVAS};
-                alternate-background-color: {BMW_SURFACE_SOFT};
+                background-color: {STRIPE_CANVAS};
+                alternate-background-color: {STRIPE_CANVAS_SOFT};
                 border: none;
-                color: {BMW_INK};
+                color: {STRIPE_INK};
                 font-size: 14px;
                 font-weight: 300;
             }}
             QTableWidget::item {{
                 padding: 10px 12px;
-                border-bottom: 1px solid {BMW_HAIRLINE};
+                border-bottom: 1px solid {STRIPE_HAIRLINE};
             }}
             QTableWidget::item:selected {{
-                background-color: #e8eef6;
-                color: {BMW_INK};
+                background-color: #f2f0ff;
+                color: {STRIPE_INK};
             }}
             QHeaderView::section {{
                 font-family: {FONT_FAMILY};
-                background-color: {BMW_SURFACE_SOFT};
-                color: {BMW_INK};
-                font-weight: 700;
+                background-color: {STRIPE_CANVAS_SOFT};
+                color: {STRIPE_INK};
+                font-weight: 400;
                 font-size: 13px;
+                letter-spacing: -0.39px;
                 border: none;
-                border-bottom: 2px solid {BMW_HAIRLINE_STR};
+                border-bottom: 2px solid {STRIPE_HAIRLINE};
                 height: 44px;
                 padding-left: 12px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
             }}
             QScrollBar:vertical {{
                 border: none;
-                background: {BMW_SURFACE_SOFT};
+                background: {STRIPE_CANVAS_SOFT};
                 width: 8px;
             }}
             QScrollBar::handle:vertical {{
-                background: {BMW_HAIRLINE_STR};
+                background: {STRIPE_HAIRLINE_INPUT};
                 min-height: 20px;
+                border-radius: 4px;
             }}
             QScrollBar::handle:vertical:hover {{
-                background: {BMW_MUTED};
+                background: {STRIPE_INK_MUTE};
             }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 border: none;
@@ -695,15 +706,15 @@ class ExcelSearchApp(QWidget):
 
         # 空状态
         self.empty_widget = QWidget()
-        self.empty_widget.setStyleSheet(f"border: none; background: {BMW_CANVAS};")
+        self.empty_widget.setStyleSheet(f"border: none; background: {STRIPE_CANVAS};")
         el = QVBoxLayout(self.empty_widget)
         el.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon = QLabel("—")
-        icon.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 48px; font-weight: 300; color: {BMW_HAIRLINE_STR}; border: none; background: transparent;")
+        icon.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 48px; font-weight: 300; color: {STRIPE_HAIRLINE_INPUT}; border: none; background: transparent;")
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         txt = QLabel("暂无搜索结果")
         txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        txt.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300; color: {BMW_MUTED}; border: none; background: transparent;")
+        txt.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
         el.addWidget(icon)
         el.addWidget(txt)
 
@@ -719,11 +730,11 @@ class ExcelSearchApp(QWidget):
         # ---- 状态栏 ----
         status = QFrame()
         status.setFixedHeight(36)
-        status.setStyleSheet(f"background: {BMW_CANVAS}; border: none; border-top: 1px solid {BMW_HAIRLINE};")
+        status.setStyleSheet(f"background: {STRIPE_CANVAS}; border: none; border-top: 1px solid {STRIPE_HAIRLINE};")
         sl = QHBoxLayout(status)
         sl.setContentsMargins(20, 0, 20, 0)
         self.status_label = QLabel("系统就绪")
-        self.status_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 12px; font-weight: 400; color: {BMW_MUTED}; border: none; background: transparent;")
+        self.status_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
         sl.addWidget(self.status_label)
         sl.addStretch()
 
@@ -760,13 +771,13 @@ class ExcelSearchApp(QWidget):
         self.table.hide()
         self.empty_widget.hide()
 
-        self.search_btn.setText("停止搜索")
+        self.search_btn.setText("🛑  停止搜索")
         self.search_btn.setStyleSheet(f"""
             QPushButton {{
                 font-family: {FONT_FAMILY};
-                background: {BMW_ERROR}; color: {BMW_CANVAS}; border: none;
-                border-radius: 0px; font-size: 14px; font-weight: 700;
-                padding: 0 32px;
+                background: {STRIPE_ERROR}; color: #ffffff; border: none;
+                border-radius: 9999px; font-size: 16px; font-weight: 400;
+                padding: 0 24px;
             }}
             QPushButton:hover {{ background: #b91c1c; }}
         """)
@@ -799,16 +810,16 @@ class ExcelSearchApp(QWidget):
         self.searching = False
         self.search_btn.setEnabled(True)
 
-        self.search_btn.setText("开始分析搜索")
+        self.search_btn.setText("🔍  开始分析搜索")
         self.search_btn.setStyleSheet(f"""
             QPushButton {{
                 font-family: {FONT_FAMILY};
-                background: {BMW_BLUE}; color: {BMW_ON_PRIMARY}; border: none;
-                border-radius: 0px; font-size: 14px; font-weight: 700;
-                padding: 0 32px;
+                background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
+                border-radius: 9999px; font-size: 16px; font-weight: 400;
+                padding: 0 24px;
             }}
-            QPushButton:hover {{ background: {BMW_BLUE_ACTIVE}; }}
-            QPushButton:disabled {{ background: {BMW_HAIRLINE_STR}; color: {BMW_MUTED}; }}
+            QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
+            QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
         """)
 
         self.prog_widget.hide()
@@ -865,11 +876,11 @@ class ExcelSearchApp(QWidget):
             view_btn.setStyleSheet(f"""
                 QPushButton {{
                     font-family: {FONT_FAMILY};
-                    background: {BMW_BLUE}; color: {BMW_ON_PRIMARY}; border: none;
-                    border-radius: 0px; font-size: 12px; font-weight: 700;
+                    background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
+                    border-radius: 9999px; font-size: 14px; font-weight: 400;
                     padding: 0 16px;
                 }}
-                QPushButton:hover {{ background: {BMW_BLUE_ACTIVE}; }}
+                QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
             """)
             view_btn.clicked.connect(lambda checked=False, p=item['filepath']: self._open_file(p))
 
@@ -921,7 +932,7 @@ class ExcelSearchApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyleSheet(f"QWidget {{ font-family: '{FONT_FAMILY}'; color: {BMW_INK}; }} QLineEdit {{ font-family: '{FONT_FAMILY}'; border: 1px solid {BMW_HAIRLINE}; border-radius: 0px; padding: 0 16px; }}")
+    app.setStyleSheet(f"QWidget {{ font-family: '{FONT_FAMILY}'; color: {STRIPE_INK}; }} QLineEdit {{ font-family: '{FONT_FAMILY}'; border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px; padding: 0 12px; }}")
     window = ExcelSearchApp()
     splash = SplashScreen()
     splash.finished.connect(window.show)
