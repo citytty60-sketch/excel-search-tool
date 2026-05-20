@@ -21,8 +21,8 @@
 ## 界面预览 (Screenshots)
 
 <p align="center">
-  <img src="excel_search_tool/1.png" width="45%" alt="搜索界面">
-  <img src="excel_search_tool/2.png" width="45%" alt="联系作者">
+  <img src="excel_search_tool/5386e28338ba5d1a1c69101fbaf2967a.png" width="45%" alt="搜索界面">
+  <img src="excel_search_tool/fdc47aa4b700830f598d56c060a5f830.png" width="45%" alt="联系作者">
 </p>
 
 ## 技术栈 (Tech Stack)
