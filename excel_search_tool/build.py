@@ -22,7 +22,7 @@ def build():
         print("正在安装 PySide6...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyside6"])
 
-    spec_path = "Excel搜索工具.spec"
+    spec_path = os.path.join(os.path.dirname(__file__), "Excel搜索工具.spec")
     if not os.path.exists(spec_path):
         print(f"未找到 spec 配置文件: {spec_path}")
         return
