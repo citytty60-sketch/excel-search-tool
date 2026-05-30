@@ -15,6 +15,12 @@ def build():
     except ImportError:
         print("正在安装 openpyxl...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+
+    try:
+        import python_calamine
+    except ImportError:
+        print("正在安装 python-calamine...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "python-calamine"])
         
     try:
         import PySide6

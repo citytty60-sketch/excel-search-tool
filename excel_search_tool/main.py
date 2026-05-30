@@ -1,46 +1,39 @@
-import openpyxl
 import os
 import sys
 import threading
-import subprocess
 import re
-from concurrent.futures import ThreadPoolExecutor
+import time
+import gc
+import subprocess
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # PySide6
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QFrame, QProgressBar,
-    QFileDialog, QMessageBox, QScrollArea, QSizeGrip,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QFileDialog, QMessageBox, QTableWidget, QTableWidgetItem, 
+    QHeaderView, QAbstractItemView, QSizeGrip, QComboBox, QMenu
 )
-from PySide6.QtCore import Qt, QPoint, QTimer, Signal, QSettings
-from PySide6.QtGui import QFont, QMouseEvent, QIcon, QColor, QPalette, QPainter
+from PySide6.QtCore import Qt, Signal, QSettings, QPoint, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtGui import QColor, QPainter, QMouseEvent, QFont, QIcon, QPixmap, QAction
+from PySide6.QtWidgets import QGraphicsOpacityEffect
 
 # ============================================================
-# Stripe Design System — Color Tokens
-# https://getdesign.md/stripe/design-md
+# BMW M-Power 视觉规范
 # ============================================================
-STRIPE_PRIMARY        = "#533afd"
-STRIPE_PRIMARY_DEEP   = "#4434d4"
-STRIPE_PRIMARY_PRESS  = "#2e2b8c"
-STRIPE_BRAND_DARK     = "#1c1e54"
-STRIPE_INK            = "#0d253d"
-STRIPE_INK_SECONDARY  = "#273951"
-STRIPE_INK_MUTE       = "#64748d"
-STRIPE_ON_PRIMARY     = "#ffffff"
-STRIPE_CANVAS         = "#ffffff"
-STRIPE_CANVAS_SOFT    = "#f6f9fc"
-STRIPE_HAIRLINE       = "#e3e8ee"
-STRIPE_HAIRLINE_INPUT = "#a8c3de"
-STRIPE_SHADOW_BLUE    = "#003770"
-STRIPE_ERROR          = "#dc2626"
-STRIPE_SUCCESS        = "#22c55e"
+M_LIGHT_BLUE = "#00A3E0"
+M_BLUE       = "#0066B1"
+M_DARK_BLUE  = "#003A70"
+M_RED        = "#E4002B"
+M_DARK       = "#101820"
+CANVAS       = "#FFFFFF"
+CANVAS_SOFT  = "#F2F5F8"
+TEXT_INK     = "#111827"
+TEXT_MUTE    = "#6B7280"
+BORDER       = "#DDE4ED"
 
-FONT_FAMILY = "'Inter', 'SF Pro Display', 'Microsoft YaHei UI', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+FONT_MAIN = "'Inter', 'SF Pro Display', 'Microsoft YaHei UI', sans-serif"
 
-# ============================================================
-# 资源路径处理
-# ============================================================
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
@@ -49,892 +42,529 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # ============================================================
-# 启发式列识别与搜索核心逻辑
+# 极速引擎 (Rust Calamine) + 修复版启发式识别
 # ============================================================
-def detect_columns_heuristically(rows_sample):
-    if not rows_sample:
-        return {"姓名": -1, "学号": -1, "班级": -1}
-
-    num_cols = max(len(r) for r in rows_sample)
-    score_name = [0] * num_cols
-    score_id = [0] * num_cols
-    score_class = [0] * num_cols
-
-    for row in rows_sample:
-        for idx, val in enumerate(row):
-            if val is None:
-                continue
-            val_str = str(val).strip()
-            if not val_str:
-                continue
-
-            if 7 <= len(val_str) <= 15 and val_str.isalnum() and any(c.isdigit() for c in val_str):
-                score_id[idx] += 1
-
-            if "班" in val_str or re.search(r'[一-龥]+\d+', val_str):
-                score_class[idx] += 1
-
-            if re.match(r'^[一-龥]{2,4}$', val_str):
-                score_name[idx] += 1
-
-    col_map = {"姓名": -1, "学号": -1, "班级": -1}
-    assigned = set()
-
-    best_id_idx = -1
-    best_id_score = 0
-    for idx in range(num_cols):
-        if score_id[idx] > best_id_score:
-            best_id_score = score_id[idx]
-            best_id_idx = idx
-    if best_id_idx != -1:
-        col_map["学号"] = best_id_idx
-        assigned.add(best_id_idx)
-
-    best_class_idx = -1
-    best_class_score = 0
-    for idx in range(num_cols):
-        if idx in assigned:
-            continue
-        if score_class[idx] > best_class_score:
-            best_class_score = score_class[idx]
-            best_class_idx = idx
-    if best_class_idx != -1:
-        col_map["班级"] = best_class_idx
-        assigned.add(best_class_idx)
-
-    best_name_idx = -1
-    best_name_score = 0
-    for idx in range(num_cols):
-        if idx in assigned:
-            continue
-        if score_name[idx] > best_name_score:
-            best_name_score = score_name[idx]
-            best_name_idx = idx
-    if best_name_idx != -1:
-        col_map["姓名"] = best_name_idx
-        assigned.add(best_name_idx)
-
-    return col_map
-
-def search_xlsx_professional(directory, search_string, progress_callback=None, is_cancelled=None, error_callback=None):
+def fast_worker_rust(file_path, keywords):
     results = []
-    keywords = [k.strip().lower() for k in re.split(r'[,，\s]+', search_string) if k.strip()]
-    if not keywords: return []
-
-    all_files = []
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if (file.endswith(".xlsx") or file.endswith(".xlsm")) and not file.startswith("~$"):
-                all_files.append(os.path.join(root, file))
-
-    total_files = len(all_files)
-    if total_files == 0:
-        return []
-
-    completed_files = 0
-    lock = threading.Lock()
-
-    def process_file(file_path):
-        nonlocal completed_files
-        fname = os.path.basename(file_path)
-        file_results = []
-
-        if is_cancelled and is_cancelled():
-            return []
-
-        try:
-            workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True, keep_links=False)
+    fname = os.path.basename(file_path)
+    try:
+        from python_calamine import CalamineWorkbook
+        wb = CalamineWorkbook.from_path(file_path)
+        for sheet_name in wb.sheet_names:
+            sheet = wb.get_sheet_by_name(sheet_name)
+            if not sheet: continue
+            rows_iter = sheet.iter_rows()
+            
+            sample = []
             try:
-                for sheet_name in workbook.sheetnames:
-                    if is_cancelled and is_cancelled():
-                        break
-                    sheet = workbook[sheet_name]
+                for _ in range(30):
+                    r = next(rows_iter, None)
+                    if r is None: break
+                    sample.append(r)
+            except: pass
+            if not sample: continue
+            
+            num_cols = max(len(r) for r in sample)
+            scores = {"姓名": [0]*num_cols, "学号": [0]*num_cols, "班级": [0]*num_cols}
+            
+            for row in sample:
+                for idx, val in enumerate(row):
+                    if val is None or idx >= num_cols: continue
+                    v_str = str(val).strip()
+                    if not v_str: continue
+                    
+                    v_low = v_str.lower()
+                    # 姓名特征：2-4位中文
+                    if 2 <= len(v_str) <= 4 and re.match(r'^[\u4e00-\u9fa5]{2,4}$', v_str):
+                        scores["姓名"][idx] += 2
+                    
+                    # 学号特征优化：排除 100 以内的序号，优先识别包含年份或字母的学号
+                    if re.match(r'^[a-z0-9-]{7,15}$', v_low):
+                        scores["学号"][idx] += 5 # 长度特征是学号的核心
+                        if any(c.isalpha() for c in v_low): scores["学号"][idx] += 3 # 含字母加分
+                        if "202" in v_low: scores["学号"][idx] += 4 # 含年份强加分
+                    elif v_str.isdigit() and int(v_str) < 100:
+                        scores["学号"][idx] -= 10 # 极大概率是序号，强力扣分
 
-                    row_iter = sheet.iter_rows(min_row=1, values_only=True)
-                    sample_rows = []
-                    for _ in range(10):
-                        r = next(row_iter, None)
-                        if r is None:
-                            break
-                        sample_rows.append(r)
+                    # 班级特征
+                    if "班" in v_str or re.search(r'[0-9]{2,4}-[0-9]{1,2}', v_str):
+                        scores["班级"][idx] += 2
+                    
+                    # 标题行特征匹配（权重最高）
+                    if any(x in v_low for x in ["姓名", "name"]): scores["姓名"][idx] += 20
+                    if any(x in v_low for x in ["学号", "id", "学籍", "卡号"]): scores["学号"][idx] += 20
+                    if any(x in v_low for x in ["班级", "class"]): scores["班级"][idx] += 20
 
-                    if not sample_rows:
-                        continue
+            col_map = {"姓名": -1, "学号": -1, "班级": -1}
+            for key in col_map:
+                max_score = max(scores[key])
+                if max_score > 0:
+                    col_map[key] = scores[key].index(max_score)
 
-                    col_map = {"姓名": -1, "学号": -1, "班级": -1}
-                    first_row = sample_rows[0]
-                    first_row_str = " ".join(str(v) for v in first_row if v is not None).lower()
-
-                    is_header = any(k in first_row_str for k in ["姓名", "学生姓名", "name", "学号", "id", "学籍号", "班级", "class"])
-
-                    if is_header:
-                        for idx, val in enumerate(first_row):
-                            v_str = str(val).lower() if val is not None else ""
-                            if any(k in v_str for k in ["姓名", "学生姓名", "name"]): col_map["姓名"] = idx
-                            elif any(k in v_str for k in ["学号", "id", "学籍号"]): col_map["学号"] = idx
-                            elif any(k in v_str for k in ["班级", "class"]): col_map["班级"] = idx
-
-                    if -1 in col_map.values():
-                        heuristic_map = detect_columns_heuristically(sample_rows)
-                        for k, v in col_map.items():
-                            if v == -1:
-                                col_map[k] = heuristic_map[k]
-
-                    data_rows = sample_rows[1:] if is_header else sample_rows
-                    consecutive_empty = 0
-
-                    def process_row_tuple(row_tuple):
-                        nonlocal consecutive_empty
-                        if is_cancelled and is_cancelled():
-                            return False
-
-                        if not row_tuple or all(v is None or str(v).strip() == "" for v in row_tuple):
-                            consecutive_empty += 1
-                            if consecutive_empty >= 50:
-                                return False
-                            return True
-                        else:
-                            consecutive_empty = 0
-
-                        row_values = [str(v).strip() if v is not None else "" for v in row_tuple]
-                        row_str_combined = " ".join(row_values).lower()
-
-                        if all(k in row_str_combined for k in keywords):
-                            file_results.append({
-                                "filename": fname,
-                                "filepath": file_path,
-                                "sheet": sheet_name,
-                                "name": row_values[col_map["姓名"]] if col_map["姓名"] != -1 and col_map["姓名"] < len(row_values) else "未知",
-                                "id": row_values[col_map["学号"]] if col_map["学号"] != -1 and col_map["学号"] < len(row_values) else "未记录",
-                                "class": row_values[col_map["班级"]] if col_map["班级"] != -1 and col_map["班级"] < len(row_values) else "未记录"
-                            })
-                        return True
-
-                    for r_t in data_rows:
-                        if not process_row_tuple(r_t):
-                            break
-                    else:
-                        for r_t in row_iter:
-                            if not process_row_tuple(r_t):
-                                break
-            finally:
-                workbook.close()
-        except Exception as e:
-            if error_callback:
-                error_callback(file_path, str(e))
-            else:
-                print(f"Error reading {file_path}: {e}")
-
-        with lock:
-            completed_files += 1
-            if progress_callback:
-                progress_callback(completed_files, total_files, f"正在分析 ({completed_files}/{total_files}): {fname}")
-
-        return file_results
-
-    max_workers = min(8, os.cpu_count() or 4)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(process_file, f) for f in all_files]
-        for future in futures:
-            if is_cancelled and is_cancelled():
-                break
-            results.extend(future.result())
-
+            import itertools
+            for row_tuple in itertools.chain(sample, rows_iter):
+                if not row_tuple: continue
+                row_str = " ".join(str(v).strip() for v in row_tuple if v is not None).lower()
+                if all(kw in row_str for kw in keywords):
+                    results.append({
+                        "filename": fname,
+                        "filepath": file_path,
+                        "sheet": sheet_name,
+                        "name": str(row_tuple[col_map["姓名"]]).strip() if 0 <= col_map["姓名"] < len(row_tuple) and row_tuple[col_map["姓名"]] is not None else "未识别",
+                        "id": str(row_tuple[col_map["学号"]]).strip() if 0 <= col_map["学号"] < len(row_tuple) and row_tuple[col_map["学号"]] is not None else "未识别",
+                        "class": str(row_tuple[col_map["班级"]]).strip() if 0 <= col_map["班级"] < len(row_tuple) and row_tuple[col_map["班级"]] is not None else "未识别"
+                    })
+    except: pass
     return results
 
 # ============================================================
-# 启动屏 — Stripe Dark Hero
-# ============================================================
-class SplashScreen(QWidget):
-    finished = Signal()
-
-    def __init__(self):
-        super().__init__()
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-        self.setFixedSize(450, 220)
-        self.setStyleSheet(f"background: {STRIPE_BRAND_DARK};")
-
-        screen = QApplication.primaryScreen().geometry()
-        self.move((screen.width() - 450) // 2, (screen.height() - 220) // 2)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(8)
-
-        title = QLabel("XLSX 智能搜索助手")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 22px; font-weight: 300; letter-spacing: -0.22px; color: {STRIPE_ON_PRIMARY}; border: none;")
-
-        author = QLabel("本软件由软工24-3 沈宇 开发完成")
-        author.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        author.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 300; color: rgba(255,255,255,0.6); border: none;")
-
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        self.progress.setFixedHeight(4)
-        self.progress.setTextVisible(False)
-        self.progress.setStyleSheet(f"""
-            QProgressBar {{ background: rgba(255,255,255,0.12); border: none; border-radius: 0px; }}
-            QProgressBar::chunk {{ background: {STRIPE_PRIMARY}; border: none; border-radius: 0px; }}
-        """)
-
-        layout.addStretch()
-        layout.addWidget(title)
-        layout.addWidget(author)
-        layout.addSpacing(20)
-        layout.addWidget(self.progress)
-        layout.addStretch()
-
-        self._tick_count = 0
-        self._timer = QTimer()
-        self._timer.timeout.connect(self._tick)
-        self._timer.start(20)
-
-    def _tick(self):
-        self._tick_count += 1
-        self.progress.setValue(self._tick_count)
-        if self._tick_count >= 100:
-            self._timer.stop()
-            self.finished.emit()
-            self.hide()
-            self.deleteLater()
-
-# ============================================================
-# 自定义标题栏 — Stripe Dark Surface
-# ============================================================
-class TitleBar(QFrame):
-    def __init__(self, window):
-        super().__init__()
-        self.window = window
-        self._drag_pos = None
-        self.setFixedHeight(48)
-        self.setStyleSheet(f"background: {STRIPE_BRAND_DARK}; border: none;")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 0, 0, 0)
-        layout.setSpacing(0)
-
-        title = QLabel("Excel 智能全文检索系统  By 沈宇")
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 14px; font-weight: 400; color: {STRIPE_ON_PRIMARY}; border: none;")
-        layout.addWidget(title)
-        layout.addStretch()
-
-        for text, action in [("—", "min"), ("□", "max"), ("✕", "close")]:
-            btn = QPushButton(text)
-            btn.setFixedSize(48, 32)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; color: {STRIPE_ON_PRIMARY}; border: none; font-size: 14px; }}
-                QPushButton:hover {{ background: {'#e22718' if action == 'close' else 'rgba(255,255,255,0.12)'}; }}
-            """)
-            if action == "min": btn.clicked.connect(window.showMinimized)
-            elif action == "max": btn.clicked.connect(self._toggle_max)
-            elif action == "close": btn.clicked.connect(window.close)
-            layout.addWidget(btn)
-
-    def _toggle_max(self):
-        if self.window.isMaximized(): self.window.showNormal()
-        else: self.window.showMaximized()
-
-    def mousePressEvent(self, e: QMouseEvent):
-        if e.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = e.position().toPoint()
-
-    def mouseMoveEvent(self, e: QMouseEvent):
-        if self._drag_pos is not None and e.buttons() == Qt.MouseButton.LeftButton:
-            self.window.move(e.globalPosition().toPoint() - self._drag_pos)
-
-    def mouseReleaseEvent(self, e: QMouseEvent):
-        self._drag_pos = None
-
-# ============================================================
-# Button Factories — Stripe Pill 9999px Radius
-# ============================================================
-def primary_button(text, height=40):
-    btn = QPushButton(text)
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(height)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            font-family: {FONT_FAMILY};
-            background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
-            border-radius: 9999px; font-size: 16px; font-weight: 400;
-            padding: 0 24px;
-        }}
-        QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
-        QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
-    """)
-    return btn
-
-def secondary_button(text, height=40):
-    btn = QPushButton(text)
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(height)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            font-family: {FONT_FAMILY};
-            background: {STRIPE_CANVAS}; color: {STRIPE_PRIMARY}; border: 1px solid {STRIPE_PRIMARY};
-            border-radius: 9999px; font-size: 16px; font-weight: 400;
-            padding: 0 24px;
-        }}
-        QPushButton:hover {{ background: #f8f7ff; }}
-    """)
-    return btn
-
-def success_button(text, height=40):
-    btn = QPushButton(text)
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(height)
-    btn.setStyleSheet(f"""
-        QPushButton {{
-            font-family: {FONT_FAMILY};
-            background: {STRIPE_SUCCESS}; color: #ffffff; border: none;
-            border-radius: 9999px; font-size: 16px; font-weight: 400;
-            padding: 0 24px;
-        }}
-        QPushButton:hover {{ background: #1ea84e; }}
-        QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
-    """)
-    return btn
-
-# ============================================================
-# 联系作者 模态遮罩层 — Stripe Style
+# UI 组件库
 # ============================================================
 class ContactOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent
         self.setVisible(False)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-
-        card = QFrame()
-        card.setFixedSize(340, 380)
-        card.setStyleSheet(f"""
-            QFrame {{
-                background-color: {STRIPE_CANVAS};
-                border: 1px solid {STRIPE_HAIRLINE};
-                border-radius: 12px;
-            }}
-            QLabel {{
-                border: none;
-                background: transparent;
-            }}
-        """)
-
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(32, 24, 32, 32)
-        card_layout.setSpacing(16)
-
-        header_layout = QHBoxLayout()
-        title = QLabel("联系作者")
-        title.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 18px; font-weight: 300; letter-spacing: -0.2px; color: {STRIPE_INK};")
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; color: {STRIPE_INK_MUTE}; border: none; font-size: 16px; font-weight: 400; }}
-            QPushButton:hover {{ color: {STRIPE_ERROR}; }}
-        """)
-        close_btn.clicked.connect(self.hide)
-        header_layout.addWidget(title)
-        header_layout.addStretch()
-        header_layout.addWidget(close_btn)
-        card_layout.addLayout(header_layout)
-
-        desc = QLabel("如有问题或建议，欢迎扫码添加作者微信（沈宇）：")
-        desc.setWordWrap(True)
-        desc.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300; color: {STRIPE_INK_SECONDARY}; line-height: 1.4;")
-        card_layout.addWidget(desc)
-
-        lbl = QLabel()
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pix = QIcon(resource_path("2.png")).pixmap(200, 200)
-        lbl.setPixmap(pix)
-        card_layout.addWidget(lbl)
-
-        card_layout.addStretch()
-        main_layout.addWidget(card)
-
+        self.setFixedSize(parent.size() if parent else (1100, 850))
+        
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 55, 112, 60))
-        super().paintEvent(event)
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(0, 0, 0, 100)) # 半透明遮罩
+        
+    def show_card(self):
+        self.setFixedSize(self.parent().size())
+        self.show()
+        self.raise_()
+        
+        # 居中显示一个卡片
+        card = QFrame(self)
+        card.setFixedSize(360, 420)
+        card.setStyleSheet(f"background: white; border-radius: 12px; border: 1px solid {BORDER};")
+        card.move((self.width()-360)//2, (self.height()-420)//2)
+        card.show()
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(30, 20, 30, 30)
+        
+        top = QHBoxLayout()
+        title = QLabel("联系作者 / 打赏"); title.setStyleSheet("font-weight: 800; font-size: 16px;")
+        close_btn = QPushButton("✕"); close_btn.setFixedSize(30, 30); close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet("background: transparent; border: none; font-size: 18px;")
+        close_btn.clicked.connect(self.hide)
+        top.addWidget(title); top.addStretch(); top.addWidget(close_btn)
+        layout.addLayout(top)
+        
+        info = QLabel("如有问题或打赏，请扫码添加作者微信：")
+        info.setStyleSheet(f"color: {TEXT_MUTE}; font-size: 13px; margin: 5px 0;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        
+        img = QLabel()
+        img_path = resource_path("2.png")
+        if os.path.exists(img_path):
+            pix = QPixmap(img_path).scaled(240, 240, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            img.setPixmap(pix)
+        else:
+            img.setText("[ 2.png 未找到 ]")
+        img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(img)
+        
+        name = QLabel("沈宇 (软工24-3)")
+        name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        name.setStyleSheet("font-weight: 700; font-size: 14px; margin-top: 10px;")
+        layout.addWidget(name)
 
-    def resize_to_parent(self):
-        if self.parent:
-            self.setGeometry(0, 0, self.parent.width(), self.parent.height())
+class SplashScreen(QWidget):
+    finished = Signal()
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setFixedSize(500, 280)
+        self.setStyleSheet(f"background: white; border: 1px solid {BORDER};")
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(0)
+        
+        stripe = QWidget(); stripe.setFixedHeight(6)
+        sl = QHBoxLayout(stripe); sl.setContentsMargins(0, 0, 0, 0); sl.setSpacing(0)
+        for c in (M_LIGHT_BLUE, M_BLUE, M_RED):
+            f = QFrame(); f.setStyleSheet(f"background: {c}; border: none;"); sl.addWidget(f)
+        layout.addWidget(stripe)
+        
+        content = QVBoxLayout(); content.setContentsMargins(40, 40, 40, 40); content.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        t = QLabel("Excel 智能全文检索系统")
+        t.setStyleSheet(f"font-size: 26px; font-weight: 900; color: {M_DARK}; border: none;")
+        author = QLabel("本软件由软工24-3 沈宇 开发完成")
+        author.setStyleSheet(f"font-size: 14px; color: {TEXT_MUTE}; margin-top: 10px; border: none;")
+        self.pb = QProgressBar(); self.pb.setFixedHeight(4); self.pb.setTextVisible(False); self.pb.setRange(0, 100)
+        self.pb.setStyleSheet(f"QProgressBar {{ background: {CANVAS_SOFT}; border: none; }} QProgressBar::chunk {{ background: {M_BLUE}; }}")
+        
+        content.addWidget(t, 0, Qt.AlignmentFlag.AlignCenter)
+        content.addWidget(author, 0, Qt.AlignmentFlag.AlignCenter)
+        content.addStretch()
+        content.addWidget(self.pb)
+        layout.addLayout(content)
+        
+        self.timer = QTimer(); self.timer.timeout.connect(self._tick)
+        self.val = 0; self.timer.start(25)
+        geo = QApplication.primaryScreen().availableGeometry()
+        self.move((geo.width()-500)//2, (geo.height()-280)//2)
+
+    def _tick(self):
+        self.val += 2; self.pb.setValue(self.val)
+        if self.val >= 100: self.timer.stop(); self.finished.emit(); self.close()
+
+class TitleBar(QFrame):
+    def __init__(self, window):
+        super().__init__()
+        self.window = window
+        self.setFixedHeight(46)
+        self.setStyleSheet(f"background: white; border-bottom: 1px solid {BORDER};")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 0, 0, 0)
+        title = QLabel("Excel 智能全文检索系统")
+        title.setStyleSheet(f"color: {M_DARK}; font-weight: 700; font-size: 14px;")
+        layout.addWidget(title); layout.addStretch()
+        for icon, cmd in [("—", "min"), ("✕", "close")]:
+            btn = QPushButton(icon); btn.setFixedSize(46, 46); btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"QPushButton {{ background: transparent; color: {M_DARK}; border: none; font-size: 14px; }} "
+                            f"QPushButton:hover {{ background: {CANVAS_SOFT}; {'color: white; background: #e81123;' if cmd=='close' else ''} }}")
+            if cmd == "min": btn.clicked.connect(window.showMinimized)
+            else: btn.clicked.connect(window.close)
+            layout.addWidget(btn)
+        self._drag_pos = None
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton: self._drag_pos = e.position().toPoint()
+    def mouseMoveEvent(self, e):
+        if self._drag_pos: self.window.move(e.globalPosition().toPoint() - self._drag_pos)
+    def mouseReleaseEvent(self, e): self._drag_pos = None
 
 # ============================================================
-# 主窗口
+# 主应用
 # ============================================================
 class ExcelSearchApp(QWidget):
-    search_progress_sig = Signal(int, int, str)
-    search_finished_sig = Signal(list)
+    progress_sig = Signal(int, int, str)
+    finished_sig = Signal(list)
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Excel 智能搜索助手 — By 沈宇")
-        self.resize(1020, 820)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-
-        self.last_results = []
+        self.resize(1100, 850)
+        self.setAcceptDrops(True)
         self.searching = False
-        self.cancel_flag = False
-        self.failed_files = []
+        self.stop_requested = False
+        self.start_time = 0
+        self.total_files = 0
+        self.settings = QSettings("M-Power", "ExcelSearchV4")
+        self.results_data = []
+        self.dark_mode = self.settings.value("dark_mode", "false") == "true"
+        
+        self._init_ui()
+        self._apply_theme()
+        self._load_config()
+        
+        self.overlay = ContactOverlay(self)
+        self.progress_sig.connect(self._on_progress)
+        self.finished_sig.connect(self._on_finished)
 
-        self._setup_ui()
-        self.load_settings()
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        root.addWidget(TitleBar(self))
 
-        self.contact_overlay = ContactOverlay(self)
+        self.body = QWidget()
+        root.addWidget(self.body)
+        self.main_layout = QVBoxLayout(self.body); self.main_layout.setContentsMargins(30, 25, 30, 25); self.main_layout.setSpacing(15)
 
-        self.search_progress_sig.connect(self._on_progress)
-        self.search_finished_sig.connect(self._on_finished)
+        self.card = QFrame()
+        self.main_layout.addWidget(self.card)
+        cl = QVBoxLayout(self.card); cl.setContentsMargins(25, 20, 25, 20); cl.setSpacing(12)
 
-    def load_settings(self):
-        settings = QSettings("ShenYu", "ExcelSearchApp")
-        saved_dir = settings.value("search_directory", "")
-        saved_kw = settings.value("search_keyword", "")
-        if saved_dir:
-            self.dir_path.setText(saved_dir)
-        if saved_kw:
-            self.search_input.setText(saved_kw)
+        def create_row(label, is_combo=False):
+            row = QHBoxLayout()
+            lbl = QLabel(label); lbl.setFixedWidth(70); lbl.setStyleSheet("font-weight: 700;")
+            if is_combo:
+                edit = QComboBox(); edit.setEditable(True); edit.setFixedHeight(40)
+            else:
+                edit = QLineEdit(); edit.setFixedHeight(40)
+            row.addWidget(lbl); row.addWidget(edit)
+            if label == "搜索路径":
+                btn = QPushButton("浏览"); btn.setFixedSize(70, 40); btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(self._browse)
+                row.addWidget(btn)
+                self.path_browse_btn = btn
+            cl.addLayout(row)
+            return edit, lbl
 
-    def save_settings(self):
-        settings = QSettings("ShenYu", "ExcelSearchApp")
-        settings.setValue("search_directory", self.dir_path.text().strip())
-        settings.setValue("search_keyword", self.search_input.text().strip())
+        self.path_edit, self.path_label = create_row("搜索路径", is_combo=True)
+        self.kw_edit, self.kw_label = create_row("搜索内容")
+        self.kw_edit.setPlaceholderText("输入关键字，支持空格分隔多词...")
 
-    def _setup_ui(self):
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
+        self.hint = QLabel("专业可能有缩写，建议搜索简写（如'人工'）以及完整称呼（如'人工智能'），进行两次搜索以确保结果准确")
+        self.hint.setStyleSheet(f"color: {M_BLUE}; font-size: 12px; font-weight: 500; margin-left: 75px;")
+        cl.addWidget(self.hint)
 
-        self.title_bar = TitleBar(self)
-        root_layout.addWidget(self.title_bar)
+        btn_box = QHBoxLayout(); btn_box.setContentsMargins(0, 10, 0, 0); btn_box.setSpacing(12)
+        self.search_btn = QPushButton(" 开始分析搜索"); self.search_btn.setFixedSize(160, 42); self.search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.search_btn.clicked.connect(self._toggle_search)
+        
+        self.export_btn = QPushButton(" 导出汇总表格"); self.export_btn.setFixedSize(150, 42); self.export_btn.setEnabled(False)
+        self.export_btn.clicked.connect(self._export)
 
-        body = QWidget()
-        body.setStyleSheet(f"background: {STRIPE_CANVAS_SOFT};")
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(32, 32, 32, 32)
-        body_layout.setSpacing(24)
+        self.theme_btn = QPushButton(" 切换深色模式"); self.theme_btn.setFixedSize(130, 42); self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_btn.clicked.connect(self._toggle_theme)
 
-        # ---- 搜索卡片 (Stripe card-feature-light) ----
-        card1 = QFrame()
-        card1.setStyleSheet(f"""
-            QFrame {{
-                background: {STRIPE_CANVAS};
-                border: 1px solid {STRIPE_HAIRLINE};
-                border-radius: 12px;
-            }}
-        """)
-        c1 = QVBoxLayout(card1)
-        c1.setContentsMargins(32, 24, 32, 24)
-        c1.setSpacing(16)
+        contact_btn = QPushButton(" 联系作者 / 打赏"); contact_btn.setFixedSize(150, 42); contact_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        contact_btn.clicked.connect(lambda: self.overlay.show_card())
+        self.contact_btn = contact_btn
 
-        path_row = QHBoxLayout()
-        path_row.setSpacing(12)
-        path_label = QLabel("搜索路径")
-        path_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 400; color: {STRIPE_INK}; border: none; background: transparent;")
-        path_label.setFixedWidth(64)
-        self.dir_path = QLineEdit()
-        self.dir_path.setPlaceholderText("选择包含 .xlsx 文件的文件夹...")
-        self.dir_path.setFixedHeight(40)
-        self.dir_path.setStyleSheet(f"""
-            font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300;
-            color: {STRIPE_INK}; background: {STRIPE_CANVAS};
-            border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px;
-            padding: 0 12px;
-        """)
-        browse_btn = secondary_button("浏览")
-        path_row.addWidget(path_label)
-        path_row.addWidget(self.dir_path)
-        path_row.addWidget(browse_btn)
-        c1.addLayout(path_row)
+        btn_box.addWidget(self.search_btn); btn_box.addWidget(self.export_btn); btn_box.addWidget(self.theme_btn); btn_box.addStretch(); btn_box.addWidget(contact_btn)
+        self.main_layout.addLayout(btn_box)
 
-        kw_row = QHBoxLayout()
-        kw_row.setSpacing(12)
-        kw_label = QLabel("搜索内容")
-        kw_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 400; color: {STRIPE_INK}; border: none; background: transparent;")
-        kw_label.setFixedWidth(64)
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("输入关键字，多个关键字用空格或逗号分隔...")
-        self.search_input.setFixedHeight(40)
-        self.search_input.setStyleSheet(f"""
-            font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300;
-            color: {STRIPE_INK}; background: {STRIPE_CANVAS};
-            border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px;
-            padding: 0 12px;
-        """)
-        self.search_input.returnPressed.connect(self.start_search)
-        kw_row.addWidget(kw_label)
-        kw_row.addWidget(self.search_input)
-        c1.addLayout(kw_row)
+        # 结果过滤行
+        filter_box = QHBoxLayout()
+        self.filter_edit = QLineEdit(); self.filter_edit.setPlaceholderText("🔍 在结果中快速过滤..."); self.filter_edit.setFixedHeight(32)
+        self.filter_edit.textChanged.connect(self._filter_table)
+        filter_box.addStretch(); filter_box.addWidget(self.filter_edit, 0)
+        self.main_layout.addLayout(filter_box)
 
-        hint = QLabel("专业可能有缩写，建议搜索简写以及完整称呼进行两次搜索以确保准确")
-        hint.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
-        c1.addWidget(hint)
-        body_layout.addWidget(card1)
+        self.stack = QFrame(); self.stack.setStyleSheet("border: none;")
+        sl = QVBoxLayout(self.stack); sl.setContentsMargins(0, 0, 0, 0)
+        # 移除最后的“操作”列以提升大批量数据渲染性能
+        self.table = QTableWidget(); self.table.setColumnCount(5); self.table.setHorizontalHeaderLabels(["文件名", "工作表", "姓名", "学号", "班级"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.setAlternatingRowColors(True)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+        self.table.itemDoubleClicked.connect(lambda item: self._open_file(self.results_data[item.row()]["filepath"]))
+        
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(36)
+        
+        # 绑定回车搜索
+        self.kw_edit.returnPressed.connect(self._toggle_search)
+        self.path_edit.lineEdit().returnPressed.connect(self._toggle_search)
+        
+        # 为路径编辑框增加右键菜单清理历史
+        self.path_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.path_edit.customContextMenuRequested.connect(self._path_context_menu)
 
-        # ---- 按钮栏 ----
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(12)
-        self.search_btn = primary_button("🔍  开始分析搜索", height=40)
-        self.search_btn.clicked.connect(self.start_search)
-        self.export_btn = success_button("📥  导出汇总表格", height=40)
-        self.export_btn.setEnabled(False)
-        self.export_btn.clicked.connect(self.export_results)
-
-        btn_row.addWidget(self.search_btn)
-        btn_row.addWidget(self.export_btn)
-        contact_btn = secondary_button("💬  联系作者", height=40)
-        contact_btn.clicked.connect(self.show_contact)
-        btn_row.addWidget(contact_btn)
-        btn_row.addStretch()
-        body_layout.addLayout(btn_row)
-
-        # ---- 进度 ----
-        self.prog_widget = QWidget()
-        self.prog_widget.setStyleSheet("background: transparent; border: none;")
-        pl = QVBoxLayout(self.prog_widget)
-        pl.setContentsMargins(0, 0, 0, 0)
-        pl.setSpacing(8)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{ background: {STRIPE_CANVAS}; border: none; border-radius: 0px; }}
-            QProgressBar::chunk {{ background: {STRIPE_PRIMARY}; border: none; border-radius: 0px; }}
-        """)
-        self.prog_label = QLabel("等待开始...")
-        self.prog_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
-        pl.addWidget(self.progress_bar)
-        pl.addWidget(self.prog_label)
-        self.prog_widget.hide()
-        body_layout.addWidget(self.prog_widget)
-
-        # ---- 结果卡片 (Stripe card-feature-light) ----
-        card2 = QFrame()
-        card2.setStyleSheet(f"""
-            QFrame {{
-                background: {STRIPE_CANVAS};
-                border: 1px solid {STRIPE_HAIRLINE};
-                border-radius: 12px;
-            }}
-        """)
-        c2 = QVBoxLayout(card2)
-        c2.setContentsMargins(1, 1, 1, 1)
-        c2.setSpacing(0)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["文件名", "姓名", "学号", "班级", "操作"])
-        self.table.setAlternatingRowColors(True)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setShowGrid(False)
-
-        self.table.setStyleSheet(f"""
-            QTableWidget {{
-                font-family: {FONT_FAMILY};
-                background-color: {STRIPE_CANVAS};
-                alternate-background-color: {STRIPE_CANVAS_SOFT};
-                border: none;
-                color: {STRIPE_INK};
-                font-size: 14px;
-                font-weight: 300;
-            }}
-            QTableWidget::item {{
-                padding: 10px 12px;
-                border-bottom: 1px solid {STRIPE_HAIRLINE};
-            }}
-            QTableWidget::item:selected {{
-                background-color: #f2f0ff;
-                color: {STRIPE_INK};
-            }}
-            QHeaderView::section {{
-                font-family: {FONT_FAMILY};
-                background-color: {STRIPE_CANVAS_SOFT};
-                color: {STRIPE_INK};
-                font-weight: 400;
-                font-size: 13px;
-                letter-spacing: -0.39px;
-                border: none;
-                border-bottom: 2px solid {STRIPE_HAIRLINE};
-                height: 44px;
-                padding-left: 12px;
-            }}
-            QScrollBar:vertical {{
-                border: none;
-                background: {STRIPE_CANVAS_SOFT};
-                width: 8px;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {STRIPE_HAIRLINE_INPUT};
-                min-height: 20px;
-                border-radius: 4px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {STRIPE_INK_MUTE};
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                border: none;
-                background: none;
-                height: 0px;
-            }}
-        """)
-
-        table_header = self.table.horizontalHeader()
-        table_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        table_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        table_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        table_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
-        table_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(1, 100)
-        self.table.setColumnWidth(2, 140)
-        self.table.setColumnWidth(3, 140)
-        self.table.setColumnWidth(4, 90)
-        table_header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.table.verticalHeader().setVisible(False)
-        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-
-        # 空状态
         self.empty_widget = QWidget()
-        self.empty_widget.setStyleSheet(f"border: none; background: {STRIPE_CANVAS};")
-        el = QVBoxLayout(self.empty_widget)
-        el.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon = QLabel("—")
-        icon.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 48px; font-weight: 300; color: {STRIPE_HAIRLINE_INPUT}; border: none; background: transparent;")
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        txt = QLabel("暂无搜索结果")
-        txt.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        txt.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 15px; font-weight: 300; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
-        el.addWidget(icon)
-        el.addWidget(txt)
+        el = QVBoxLayout(self.empty_widget); el.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.folder_icon = QLabel("📁"); self.folder_icon.setStyleSheet("font-size: 64px; border: none;")
+        self.t1 = QLabel("暂无搜索结果"); self.t1.setStyleSheet(f"font-size: 16px; font-weight: 700; border: none;")
+        self.t2 = QLabel("输入关键字并选择文件夹后，点击搜索按钮开始"); self.t2.setStyleSheet(f"font-size: 13px; border: none;")
+        el.addWidget(self.folder_icon, 0, Qt.AlignmentFlag.AlignCenter); el.addWidget(self.t1, 0, Qt.AlignmentFlag.AlignCenter); el.addWidget(self.t2, 0, Qt.AlignmentFlag.AlignCenter)
+        sl.addWidget(self.table); sl.addWidget(self.empty_widget); self.table.hide()
+        self.main_layout.addWidget(self.stack)
 
-        c2.addWidget(self.table)
-        c2.addWidget(self.empty_widget)
+        self.prog = QProgressBar(); self.prog.setFixedHeight(4); self.prog.setTextVisible(False)
+        self.status = QLabel("就绪")
+        self.status.setStyleSheet(f"font-size: 12px;")
+        self.main_layout.addWidget(self.prog); self.main_layout.addWidget(self.status)
 
-        self.table.hide()
-        self.empty_widget.show()
-
-        body_layout.addWidget(card2, 1)
-        root_layout.addWidget(body, 1)
-
-        # ---- 状态栏 ----
-        status = QFrame()
-        status.setFixedHeight(36)
-        status.setStyleSheet(f"background: {STRIPE_CANVAS}; border: none; border-top: 1px solid {STRIPE_HAIRLINE};")
-        sl = QHBoxLayout(status)
-        sl.setContentsMargins(20, 0, 20, 0)
-        self.status_label = QLabel("系统就绪")
-        self.status_label.setStyleSheet(f"font-family: {FONT_FAMILY}; font-size: 13px; font-weight: 400; color: {STRIPE_INK_MUTE}; border: none; background: transparent;")
-        sl.addWidget(self.status_label)
-        sl.addStretch()
-
-        sizegrip = QSizeGrip(self)
-        sizegrip.setStyleSheet("background: transparent;")
-        sl.addWidget(sizegrip)
-
-        root_layout.addWidget(status)
-
-    def browse(self):
-        d = QFileDialog.getExistingDirectory(self, "选择文件夹")
-        if d: self.dir_path.setText(d)
-
-    def start_search(self):
-        if self.searching:
-            self._cancel_search()
-            return
-
-        folder = self.dir_path.text().strip()
-        kw = self.search_input.text().strip()
-        if not folder or not kw: return
-
-        if not os.path.isdir(folder):
-            QMessageBox.warning(self, "错误", "填写的搜索路径不是有效的文件夹目录！")
-            return
-
-        self.save_settings()
-
-        self.searching = True
-        self.cancel_flag = False
-        self.failed_files = []
-
-        self.table.setRowCount(0)
-        self.table.hide()
-        self.empty_widget.hide()
-
-        self.search_btn.setText("🛑  停止搜索")
-        self.search_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {FONT_FAMILY};
-                background: {STRIPE_ERROR}; color: #ffffff; border: none;
-                border-radius: 9999px; font-size: 16px; font-weight: 400;
-                padding: 0 24px;
-            }}
-            QPushButton:hover {{ background: #b91c1c; }}
+    def _apply_theme(self):
+        bg = M_DARK if self.dark_mode else CANVAS
+        bg_soft = "#1E293B" if self.dark_mode else CANVAS_SOFT
+        text = "#F8FAFC" if self.dark_mode else TEXT_INK
+        text_mute = "#94A3B8" if self.dark_mode else TEXT_MUTE
+        border = "#334155" if self.dark_mode else BORDER
+        
+        self.body.setStyleSheet(f"background: {bg};")
+        self.card.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 6px;")
+        self.path_label.setStyleSheet(f"color: {text}; font-weight: 700;")
+        self.kw_label.setStyleSheet(f"color: {text}; font-weight: 700;")
+        self.path_edit.setStyleSheet(f"QComboBox {{ border: 1px solid {border}; border-radius: 4px; padding: 0 12px; background: {bg}; color: {text}; }} QComboBox::drop-down {{ border: none; }}")
+        self.kw_edit.setStyleSheet(f"border: 1px solid {border}; border-radius: 4px; padding: 0 12px; background: {bg}; color: {text};")
+        self.path_browse_btn.setStyleSheet(f"background: {bg}; border: 1px solid {border}; border-radius: 4px; color: {text};")
+        
+        btn_style_base = f"QPushButton {{ background: white; border: 1px solid {border}; border-radius: 6px; color: {M_DARK}; }} QPushButton:hover {{ background: {CANVAS_SOFT}; }}"
+        if self.dark_mode:
+            btn_style_base = f"QPushButton {{ background: #1E293B; border: 1px solid {border}; border-radius: 6px; color: white; }} QPushButton:hover {{ background: #334155; }}"
+        
+        self.theme_btn.setStyleSheet(btn_style_base)
+        self.contact_btn.setStyleSheet(btn_style_base)
+        self.export_btn.setStyleSheet(f"QPushButton {{ background: {bg_soft}; border: 1px solid {border}; color: {text_mute}; font-weight: 700; border-radius: 6px; }} QPushButton:enabled {{ background: {bg}; color: {text}; }}")
+        
+        self.filter_edit.setStyleSheet(f"border: 1px solid {border}; border-radius: 16px; padding: 0 15px; background: {bg_soft}; color: {text}; font-size: 12px;")
+        
+        self.table.setStyleSheet(f"""
+            QTableWidget {{ background: {bg}; border: 1px solid {border}; border-radius: 6px; gridline-color: transparent; selection-background-color: {M_BLUE}; selection-color: white; color: {text}; }} 
+            QHeaderView::section {{ background: {bg_soft}; padding: 10px; font-weight: 700; border: none; color: {text}; }}
+            QScrollBar:vertical {{ border: none; background: {bg_soft}; width: 8px; margin: 0px; border-radius: 4px; }}
+            QScrollBar::handle:vertical {{ background: {border}; min-height: 20px; border-radius: 4px; }}
+            QScrollBar::handle:vertical:hover {{ background: {M_BLUE}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
         """)
+        
+        self.t1.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {text_mute}; border: none;")
+        self.t2.setStyleSheet(f"font-size: 13px; color: {text_mute}; border: none;")
+        self.status.setStyleSheet(f"color: {text_mute}; font-size: 12px;")
+        self.prog.setStyleSheet(f"QProgressBar {{ background: {bg_soft}; border: none; }} QProgressBar::chunk {{ background: {M_RED}; }}")
+        
+        self.theme_btn.setText(" 切换浅色模式" if self.dark_mode else " 切换深色模式")
+        self.settings.setValue("dark_mode", "true" if self.dark_mode else "false")
 
-        self.export_btn.setEnabled(False)
-        self.prog_widget.show()
-        self.status_label.setText("正在准备搜索...")
+    def _toggle_theme(self):
+        self.dark_mode = not self.dark_mode
+        self._apply_theme()
 
-        threading.Thread(target=self._worker, args=(folder, kw), daemon=True).start()
+    def _load_config(self):
+        history = self.settings.value("path_history", [])
+        if history:
+            self.path_edit.addItems(history)
+            self.path_edit.setCurrentText(history[0])
+        self.kw_edit.setText(self.settings.value("last_kw", ""))
 
-    def _cancel_search(self):
-        self.cancel_flag = True
-        self.status_label.setText("正在停止搜索...")
-        self.search_btn.setEnabled(False)
+    def _save_history(self, path):
+        history = self.settings.value("path_history", [])
+        if path in history: history.remove(path)
+        history.insert(0, path)
+        history = history[:5]
+        self.settings.setValue("path_history", history)
+        self.path_edit.clear()
+        self.path_edit.addItems(history)
 
-    def _worker(self, folder, kw):
-        def cb(c, t, m): self.search_progress_sig.emit(c, t, m)
-        def cancel_check(): return self.cancel_flag
-        def error_cb(path, err): self.failed_files.append((path, err))
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls(): e.accept()
+    def dropEvent(self, e):
+        urls = e.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if os.path.isfile(path): path = os.path.dirname(path)
+            self.path_edit.setCurrentText(path)
 
-        res = search_xlsx_professional(folder, kw, cb, cancel_check, error_cb)
-        self.search_finished_sig.emit(res)
+    def _browse(self):
+        p = QFileDialog.getExistingDirectory(self, "选择文件夹")
+        if p: self.path_edit.setCurrentText(p)
+
+    def _filter_table(self, text):
+        text = text.lower()
+        for i in range(self.table.rowCount()):
+            match = False
+            for j in range(self.table.columnCount()):
+                item = self.table.item(i, j)
+                if item and text in item.text().lower():
+                    match = True; break
+            self.table.setRowHidden(i, not match)
+
+    def _show_context_menu(self, pos):
+        item = self.table.itemAt(pos)
+        if not item: return
+        row = item.row()
+        file_path = self.results_data[row]["filepath"]
+        menu = QMenu(self)
+        menu.setStyleSheet(f"QMenu {{ background: white; border: 1px solid {BORDER}; }} QMenu::item:selected {{ background: {CANVAS_SOFT}; color: {M_BLUE}; }}")
+        act_open = QAction("打开文件", self)
+        act_open.triggered.connect(lambda: self._open_file(file_path))
+        act_folder = QAction("打开所在文件夹", self)
+        act_folder.triggered.connect(lambda: self._open_folder(file_path))
+        menu.addAction(act_open); menu.addAction(act_folder)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _path_context_menu(self, pos):
+        menu = QMenu(self)
+        menu.setStyleSheet(f"QMenu {{ background: white; border: 1px solid {BORDER}; }} QMenu::item:selected {{ background: {CANVAS_SOFT}; color: {M_RED}; }}")
+        clear_act = QAction("清空历史记录", self)
+        clear_act.triggered.connect(self._clear_history)
+        menu.addAction(clear_act)
+        menu.exec(self.path_edit.mapToGlobal(pos))
+
+    def _clear_history(self):
+        self.settings.setValue("path_history", [])
+        self.path_edit.clear()
+        QMessageBox.information(self, "提示", "历史记录已清空。")
+
+    def _toggle_search(self):
+        if self.searching:
+            self.stop_requested = True; return
+        path = self.path_edit.currentText().strip(); kw = self.kw_edit.text().strip()
+        if not path or not kw or not os.path.isdir(path): return
+        self._save_history(path)
+        self.settings.setValue("last_kw", kw)
+        self.searching = True; self.stop_requested = False
+        self.start_time = time.time()
+        self.search_btn.setText(" 停止分析搜索"); self.search_btn.setStyleSheet(f"background: {M_RED}; color: white; font-weight: 700; border-radius: 6px;")
+        self.table.hide(); self.empty_widget.hide(); self.table.setRowCount(0); self.export_btn.setEnabled(False)
+        threading.Thread(target=self._run_engine, args=(path, kw), daemon=True).start()
+
+    def _run_engine(self, path, kw_str):
+        keywords = [k.lower() for k in re.split(r'[,，\s]+', kw_str) if k]
+        files = []
+        for r, _, fs in os.walk(path):
+            for f in fs:
+                if f.lower().endswith((".xlsx", ".xlsm")) and not f.startswith("~$"):
+                    files.append(os.path.join(r, f))
+        self.total_files = len(files)
+        if not files: self.finished_sig.emit([]); return
+        final = []
+        with ProcessPoolExecutor(max_workers=min(os.cpu_count(), 8)) as exe:
+            futures = {exe.submit(fast_worker_rust, f, keywords): f for f in files}
+            count = 0
+            for fut in as_completed(futures):
+                if self.stop_requested: exe.shutdown(wait=False, cancel_futures=True); break
+                count += 1
+                try:
+                    res = fut.result()
+                    if res: final.extend(res)
+                except: pass
+                if count % 10 == 0 or count == len(files): self.progress_sig.emit(count, len(files), f"分析中: {count}/{len(files)}")
+        self.finished_sig.emit(final)
 
     def _on_progress(self, c, t, msg):
-        self.progress_bar.setMaximum(t)
-        self.progress_bar.setValue(c)
-        self.prog_label.setText(msg)
+        self.prog.setMaximum(t); self.prog.setValue(c); self.status.setText(msg)
 
     def _on_finished(self, results):
-        self.searching = False
-        self.search_btn.setEnabled(True)
-
-        self.search_btn.setText("🔍  开始分析搜索")
-        self.search_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: {FONT_FAMILY};
-                background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
-                border-radius: 9999px; font-size: 16px; font-weight: 400;
-                padding: 0 24px;
-            }}
-            QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
-            QPushButton:disabled {{ background: {STRIPE_HAIRLINE}; color: {STRIPE_INK_MUTE}; }}
-        """)
-
-        self.prog_widget.hide()
-
-        if self.cancel_flag:
-            self.status_label.setText(f"搜索已中止 | 找到 {len(results)} 条结果")
+        self.searching = False; self.search_btn.setText(" 开始分析搜索")
+        self.search_btn.setStyleSheet(f"background: {M_BLUE}; color: white; font-weight: 700; border-radius: 6px;")
+        self.results_data = results
+        duration = time.time() - self.start_time
+        if not results:
+            self.table.hide(); self.empty_widget.show()
         else:
-            self.status_label.setText(f"完成 | 找到 {len(results)} 条结果")
-
-        self.last_results = results
-
-        if results:
+            self.empty_widget.hide()
+            self._render_table(results)
+            self.table.show()
             self.export_btn.setEnabled(True)
-            self._render_results()
-        else:
-            self.table.hide()
-            self.empty_widget.show()
+        self.status.setText(f"完成 | 耗时 {duration:.2f}s | 扫描 {self.total_files} 文件 | 找到 {len(results)} 条结果")
 
-        if self.failed_files:
-            err_msg = f"搜寻完成，但有 {len(self.failed_files)} 个文件读取失败：\n"
-            for fpath, err in self.failed_files[:5]:
-                err_msg += f"- {os.path.basename(fpath)}: {err}\n"
-            if len(self.failed_files) > 5:
-                err_msg += "... 等等\n"
-            QMessageBox.warning(self, "部分文件读取失败", err_msg)
+    def _render_table(self, data):
+        self.table.setUpdatesEnabled(False)
+        self.table.setRowCount(len(data))
+        for i, r in enumerate(data):
+            self.table.setItem(i, 0, QTableWidgetItem(r["filename"]))
+            self.table.setItem(i, 1, QTableWidgetItem(r["sheet"]))
+            self.table.setItem(i, 1, QTableWidgetItem(r["sheet"]))
+            self.table.setItem(i, 2, QTableWidgetItem(r["name"]))
+            self.table.setItem(i, 3, QTableWidgetItem(r["id"]))
+            self.table.setItem(i, 4, QTableWidgetItem(r["class"]))
+        self.table.setUpdatesEnabled(True)
 
-        if self.cancel_flag:
-            QMessageBox.information(self, "已中止", f"搜索已中止！共保留 {len(results)} 条结果。")
-        else:
-            QMessageBox.information(self, "完成", f"搜索完成！共找到 {len(results)} 条结果。")
+    def _open_file(self, path):
+        if os.name == 'nt': os.startfile(path)
+        else: subprocess.run(['open', path])
 
-    def _render_results(self):
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
-        self.table.show()
-        self.empty_widget.hide()
+    def _open_folder(self, path):
+        if os.name == 'nt': subprocess.run(['explorer', '/select,', os.path.normpath(path)])
+        else: subprocess.run(['open', os.path.dirname(path)])
 
-        limit = 1000
-        results_to_show = self.last_results[:limit]
-        self.table.setRowCount(len(results_to_show))
-
-        for idx, item in enumerate(results_to_show):
-            file_item = QTableWidgetItem(item['filename'])
-            file_item.setToolTip(item['filepath'])
-            self.table.setItem(idx, 0, file_item)
-
-            self.table.setItem(idx, 1, QTableWidgetItem(item['name']))
-            self.table.setItem(idx, 2, QTableWidgetItem(item['id']))
-            self.table.setItem(idx, 3, QTableWidgetItem(item['class']))
-
-            view_btn = QPushButton("查看")
-            view_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            view_btn.setFixedHeight(28)
-            view_btn.setStyleSheet(f"""
-                QPushButton {{
-                    font-family: {FONT_FAMILY};
-                    background: {STRIPE_PRIMARY}; color: {STRIPE_ON_PRIMARY}; border: none;
-                    border-radius: 9999px; font-size: 14px; font-weight: 400;
-                    padding: 0 16px;
-                }}
-                QPushButton:hover {{ background: {STRIPE_PRIMARY_DEEP}; }}
-            """)
-            view_btn.clicked.connect(lambda checked=False, p=item['filepath']: self._open_file(p))
-
-            container = QWidget()
-            container.setStyleSheet("background: transparent;")
-            layout = QHBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(view_btn)
-            self.table.setCellWidget(idx, 4, container)
-
-        self.table.setSortingEnabled(True)
-
-    def _on_cell_double_clicked(self, row, column):
-        if row >= 0 and row < len(self.last_results):
-            file_path = self.last_results[row]['filepath']
-            self._open_file(file_path)
-
-    def _open_file(self, filepath):
-        if os.path.exists(filepath):
-            if os.name == 'nt':
-                os.startfile(filepath)
-            else:
-                subprocess.call(['open', filepath])
-        else:
-            QMessageBox.warning(self, "错误", f"文件不存在或已被移动：\n{filepath}")
-
-    def show_contact(self):
-        self.contact_overlay.resize_to_parent()
-        self.contact_overlay.show()
-        self.contact_overlay.raise_()
+    def _export(self):
+        path, _ = QFileDialog.getSaveFileName(self, "导出结果", "Results.xlsx", "Excel (*.xlsx)")
+        if path:
+            import openpyxl
+            wb = openpyxl.Workbook(); ws = wb.active; ws.append(["文件名", "路径", "工作表", "姓名", "学号", "班级"])
+            for r in self.results_data: ws.append([r["filename"], r["filepath"], r["sheet"], r["name"], r["id"], r["class"]])
+            wb.save(path); QMessageBox.information(self, "成功", "结果已成功导出。")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, "contact_overlay"):
-            self.contact_overlay.resize_to_parent()
-
-    def export_results(self):
-        path, _ = QFileDialog.getSaveFileName(self, "导出结果", "汇总.xlsx", "Excel (*.xlsx)")
-        if path:
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.append(["文件名", "路径", "姓名", "学号", "班级"])
-            for i in self.last_results: ws.append([i['filename'], i['filepath'], i['name'], i['id'], i['class']])
-            wb.save(path)
-            QMessageBox.information(self, "成功", "导出完成")
-
-
+        if hasattr(self, 'overlay') and self.overlay.isVisible():
+            self.overlay.setFixedSize(self.size())
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyleSheet(f"QWidget {{ font-family: '{FONT_FAMILY}'; color: {STRIPE_INK}; }} QLineEdit {{ font-family: '{FONT_FAMILY}'; border: 1px solid {STRIPE_HAIRLINE_INPUT}; border-radius: 6px; padding: 0 12px; }}")
-    window = ExcelSearchApp()
     splash = SplashScreen()
-    splash.finished.connect(window.show)
+    def start_main():
+        main = ExcelSearchApp(); main.show()
+    splash.finished.connect(start_main)
     splash.show()
     sys.exit(app.exec())
